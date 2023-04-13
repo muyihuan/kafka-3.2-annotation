@@ -616,6 +616,7 @@ class GroupCoordinator(val brokerId: Int,
                       resetAndPropagateAssignmentError(group, error)
                       maybePrepareRebalance(group, s"Error when storing group assignment during SyncGroup (member: $memberId)")
                     } else {
+                      // 把分配的信息同步给leader来之前的成员.
                       setAndPropagateAssignment(group, assignment)
                       group.transitionTo(Stable)
                     }
@@ -1446,6 +1447,7 @@ class GroupCoordinator(val brokerId: Int,
     group.currentState match {
       case Dead | Empty =>
       case Stable | CompletingRebalance => maybePrepareRebalance(group, reason)
+        // 这个地方触发时，正好rebalance完成并下发了结果消息，那有可能把已经没有心跳的成员给加了进去，这里是否应该再加一次DelayedHeartbeat
       case PreparingRebalance => rebalancePurgatory.checkAndComplete(GroupJoinKey(group.groupId))
     }
   }
@@ -1490,7 +1492,7 @@ class GroupCoordinator(val brokerId: Int,
           new DelayedJoin(this, group, group.rebalanceTimeoutMs),
           Seq(GroupJoinKey(group.groupId)))
       } else {
-        // 重要
+        // 更新状态
         group.initNextGeneration()
         if (group.is(Empty)) {
           info(s"Group ${group.groupId} with generation ${group.generationId} is now empty " +
@@ -1509,6 +1511,7 @@ class GroupCoordinator(val brokerId: Int,
             s"(${Topic.GROUP_METADATA_TOPIC_NAME}-${partitionFor(group.groupId)}) with ${group.size} members")
 
           // trigger the awaiting join group response callback for all the members after rebalancing
+          // 下发加入成功消息，告知谁是leader，并把分区分配的信息发给leader
           for (member <- group.allMemberMetadata) {
             val joinResult = JoinGroupResult(
               members = if (group.isLeader(member.memberId)) {

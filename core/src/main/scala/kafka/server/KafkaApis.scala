@@ -1482,6 +1482,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     val findCoordinatorRequest = request.body[FindCoordinatorRequest]
 
     val coordinators = findCoordinatorRequest.data.coordinatorKeys.asScala.map { key =>
+      // 消费组key hash 和 消费组内部topic分区数取余，然后对应的分区leader副本所在的broker
       val (error, node) = getCoordinator(request, findCoordinatorRequest.data.keyType, key)
       new FindCoordinatorResponseData.Coordinator()
         .setKey(key)
@@ -1542,6 +1543,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           (txnCoordinator.partitionFor(key), TRANSACTION_STATE_TOPIC_NAME)
       }
 
+      // 内部topic 和 消费组相关的.
       val topicMetadata = metadataCache.getTopicMetadata(Set(internalTopicName), request.context.listenerName)
 
       if (topicMetadata.headOption.isEmpty) {

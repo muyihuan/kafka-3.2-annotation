@@ -1216,6 +1216,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     }
 
     /**
+     * 拉取消息
      * @throws KafkaException if the rebalance callback throws exception
      */
     private ConsumerRecords<K, V> poll(final Timer timer, final boolean includeMetadataInTimeout) {
@@ -1223,13 +1224,19 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         try {
             this.kafkaConsumerMetrics.recordPollStart(timer.currentTimeMs());
 
+            // 判断是否存在订阅信息
             if (this.subscriptions.hasNoSubscriptionOrUserAssignment()) {
                 throw new IllegalStateException("Consumer is not subscribed to any topics or assigned any partitions");
             }
 
             do {
+                // 如果网络层处于阻塞等待状态(防止预料之外的阻塞)，那么立即唤醒，保证本次消息可以快速被处理
                 client.maybeTriggerWakeup();
 
+                // 1.没有加入消费组，进行消费组加入.
+                // 2.已经加入成功，但是订阅信息有变化，重新申请加入.
+                // 3.已经加入成功，但是kafka元数据发生变化，发生变化的部分包含了本消费者订阅的信息.
+                // 4.心跳异常退出了消费组，需要重新加入.
                 if (includeMetadataInTimeout) {
                     // try to update assignment metadata BUT do not need to block on the timer for join group
                     updateAssignmentMetadataIfNeeded(timer, false);
@@ -1239,6 +1246,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                     }
                 }
 
+                // 发送拉取消息的请求和获取拉取成功的数据.
                 final Fetch<K, V> fetch = pollForFetches(timer);
                 if (!fetch.isEmpty()) {
                     // before returning the fetched records, we can send off the next round of fetches
@@ -1268,6 +1276,10 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     }
 
     boolean updateAssignmentMetadataIfNeeded(final Timer timer, final boolean waitForJoinGroup) {
+        // 1.没有加入消费组，进行消费组加入.
+        // 2.已经加入成功，但是订阅信息有变化，重新申请加入.
+        // 3.已经加入成功，但是kafka元数据发生变化，发生变化的部分包含了本消费者订阅的信息.
+        // 4.心跳异常退出了消费组，需要重新加入.
         if (coordinator != null && !coordinator.poll(timer, waitForJoinGroup)) {
             return false;
         }
@@ -1283,12 +1295,15 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                 Math.min(coordinator.timeToNextPoll(timer.currentTimeMs()), timer.remainingMs());
 
         // if data is available already, return it immediately
+        // 获取拉取好的数据.
         final Fetch<K, V> fetch = fetcher.collectFetch();
         if (!fetch.isEmpty()) {
             return fetch;
         }
 
         // send any new fetches (won't resend pending fetches)
+        // 没有拉取好的数据.
+        // 发送拉取请求.
         fetcher.sendFetches();
 
         // We do not want to be stuck blocking in poll if we are missing some positions

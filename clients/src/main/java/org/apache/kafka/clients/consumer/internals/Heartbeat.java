@@ -32,6 +32,7 @@ public final class Heartbeat {
     private final Time time;
     private final Timer heartbeatTimer;
     private final Timer sessionTimer;
+    // 拉取消息
     private final Timer pollTimer;
     private final Logger log;
 

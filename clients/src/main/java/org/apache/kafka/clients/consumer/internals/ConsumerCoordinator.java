@@ -469,11 +469,13 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     }
 
     void maybeUpdateSubscriptionMetadata() {
+        // kafka元数据发生变化,更新元数据.
         int version = metadata.updateVersion();
         if (version > metadataSnapshot.version) {
             Cluster cluster = metadata.fetch();
 
             if (subscriptions.hasPatternSubscription())
+                // 进行正则匹配处理，更新订阅topic信息.
                 updatePatternSubscription(cluster);
 
             // Update the current snapshot, which will be used to check for subscription
@@ -510,15 +512,18 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
             }
             // Always update the heartbeat last poll time so that the heartbeat thread does not leave the
             // group proactively due to application inactivity even if (say) the coordinator cannot be found.
+            // 发送心跳.
             pollHeartbeat(timer.currentTimeMs());
             if (coordinatorUnknownAndUnready(timer)) {
                 return false;
             }
 
+            // 是否需要重新加入消费组.
             if (rejoinNeededOrPending()) {
                 // due to a race condition between the initial metadata fetch and the initial rebalance,
                 // we need to ensure that the metadata is fresh before joining initially. This ensures
                 // that we have matched the pattern against the cluster's topics at least once before joining.
+                // 如果存在正则方式，需要重新拉取kafka最新元数据.
                 if (subscriptions.hasPatternSubscription()) {
                     // For consumer group that uses pattern-based subscription, after a topic is created,
                     // any consumer that discovers the topic after metadata refresh can trigger rebalance
@@ -531,14 +536,17 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
                         this.metadata.requestUpdate();
                     }
 
+                    // 确保kafka元数据已更新.
                     if (!client.ensureFreshMetadata(timer)) {
                         return false;
                     }
 
+                    // 更新订阅信息，进行正则匹配处理，更新订阅topic信息.
                     maybeUpdateSubscriptionMetadata();
                 }
 
                 // if not wait for join group, we would just use a timer of 0
+                // 等待并确保加入消费组横成功.
                 if (!ensureActiveGroup(waitForJoinGroup ? timer : time.timer(0L))) {
                     // since we may use a different timer in the callee, we'd still need
                     // to update the original timer's current time after the call

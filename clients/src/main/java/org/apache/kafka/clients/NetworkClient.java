@@ -556,6 +556,9 @@ public class NetworkClient implements KafkaClient {
             return responses;
         }
 
+        // 更新元数据如果需要
+        // 可以设置元数据过期时间，默认5分钟.
+        // 什么时候需要更新由使用方自行判断，例如消费者有新的订阅那可能得需要重新更新元数据,如果消费失败可能分区副本发生变化，也需要更新元数据.
         long metadataTimeout = metadataUpdater.maybeUpdate(now);
         try {
             this.selector.poll(Utils.min(timeout, metadataTimeout, defaultRequestTimeoutMs));
@@ -566,14 +569,20 @@ public class NetworkClient implements KafkaClient {
         // process completed actions
         long updatedNow = this.time.milliseconds();
         List<ClientResponse> responses = new ArrayList<>();
-        // 处理
+        // 处理请求
         handleCompletedSends(responses, updatedNow);
+        // 处理响应数据
         handleCompletedReceives(responses, updatedNow);
+
         handleDisconnections(responses, updatedNow);
         handleConnections();
         handleInitiateApiVersionRequests(updatedNow);
+
+        // 超时相关
         handleTimedOutConnections(responses, updatedNow);
         handleTimedOutRequests(responses, updatedNow);
+
+        // 处理响应请求
         completeResponses(responses);
 
         return responses;

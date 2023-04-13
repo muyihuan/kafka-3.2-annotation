@@ -249,6 +249,7 @@ public class Fetcher<K, V> implements Closeable {
         // Update metrics in case there was an assignment change
         sensors.maybeUpdateAssignment(subscriptions);
 
+        // 发送请求.
         Map<Node, FetchSessionHandler.FetchRequestData> fetchRequestMap = prepareFetchRequests();
         for (Map.Entry<Node, FetchSessionHandler.FetchRequestData> entry : fetchRequestMap.entrySet()) {
             final Node fetchTarget = entry.getKey();
@@ -271,12 +272,15 @@ public class Fetcher<K, V> implements Closeable {
             if (log.isDebugEnabled()) {
                 log.debug("Sending {} {} to broker {}", isolationLevel, data.toString(), fetchTarget);
             }
+            // 发送请求.
             RequestFuture<ClientResponse> future = client.send(fetchTarget, request);
             // We add the node to the set of nodes with pending fetch requests before adding the
             // listener because the future may have been fulfilled on another thread (e.g. during a
             // disconnection being handled by the heartbeat thread) which will mean the listener
             // will be invoked synchronously.
+            // 记录正在请求的节点，防止重复请求.
             this.nodesWithPendingFetchRequests.add(entry.getKey().id());
+            // 回调处理.
             future.addListener(new RequestFutureListener<ClientResponse>() {
                 @Override
                 public void onSuccess(ClientResponse resp) {
@@ -1146,6 +1150,7 @@ public class Fetcher<K, V> implements Closeable {
      * Determine which replica to read from.
      */
     Node selectReadReplica(TopicPartition partition, Node leaderReplica, long currentTimeMs) {
+        // 指定了副本的节点
         Optional<Integer> nodeId = subscriptions.preferredReadReplica(partition, currentTimeMs);
         if (nodeId.isPresent()) {
             Optional<Node> node = nodeId.flatMap(id -> metadata.fetch().nodeIfOnline(partition, id));
@@ -1188,12 +1193,15 @@ public class Fetcher<K, V> implements Closeable {
         long currentTimeMs = time.milliseconds();
         Map<String, Uuid> topicIds = metadata.topicIds();
 
+        // 获取需要拉取的分区列表，拉取过并有数据还没有被消费那就不用拉取了.
         for (TopicPartition partition : fetchablePartitions()) {
+            // 拉取的起始偏移地址.
             FetchPosition position = this.subscriptions.position(partition);
             if (position == null) {
                 throw new IllegalStateException("Missing position for fetchable partition " + partition);
             }
 
+            // 分区的leader节点.
             Optional<Node> leaderOpt = position.currentLeader.leader;
             if (!leaderOpt.isPresent()) {
                 log.debug("Requesting metadata update for partition {} since the position {} is missing the current leader node", partition, position);
@@ -1209,7 +1217,9 @@ public class Fetcher<K, V> implements Closeable {
                 // If we try to send during the reconnect backoff window, then the request is just
                 // going to be failed anyway before being sent, so skip the send for now
                 log.trace("Skipping fetch for partition {} because node {} is awaiting reconnect backoff", partition, node);
-            } else if (this.nodesWithPendingFetchRequests.contains(node.id())) {
+            }
+            // 请求中的不需要请求了
+            else if (this.nodesWithPendingFetchRequests.contains(node.id())) {
                 log.trace("Skipping fetch for partition {} because previous request to {} has not been processed", partition, node);
             } else {
                 // if there is a leader and no in-flight requests, issue a new fetch
@@ -1224,6 +1234,7 @@ public class Fetcher<K, V> implements Closeable {
                     builder = handler.newBuilder();
                     fetchable.put(node, builder);
                 }
+                // 构建请求信息：分区信息、topicId、offset、拉取数量等
                 builder.add(partition, new FetchRequest.PartitionData(
                     topicIds.getOrDefault(partition.topic(), Uuid.ZERO_UUID),
                     position.offset, FetchRequest.INVALID_LOG_START_OFFSET, this.fetchSize,
